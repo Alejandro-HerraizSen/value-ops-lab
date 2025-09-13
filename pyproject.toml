@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "value-ops-lab"
+version = "0.1.0"
+description = "Value creation analytics: CCC, CVaR buffer, DP policies, EBITDA bridge"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Alejandro Herraiz Sen" }]
+keywords = ["finance", "fp&a", "working capital", "cvar", "optimization"]
+
+[tool.setuptools.packages.find]
+include = ["value_ops_lab*"]
