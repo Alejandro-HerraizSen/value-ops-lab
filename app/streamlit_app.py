@@ -58,8 +58,7 @@ def empirical_left_cvar(x: np.ndarray, alpha: float) -> float:
     If the tail set is empty (alpha=1), returns min(x).
     """
     x = np.asarray(x, dtype=float).ravel()
-    n = x.size
-    if n == 0:
+    if x.size == 0:
         return 0.0
     q = empirical_left_var(x, alpha)
     tail = x[x <= q]
@@ -125,6 +124,12 @@ df = make_synthetic(n_months)
 sales_df = df[["month", "sales"]]
 cogs_df = df[["month", "cogs"]]
 
+# Ensure 'month' is datetime for plotting/formatting
+if not np.issubdtype(sales_df["month"].dtype, np.datetime64):
+    sales_df["month"] = pd.to_datetime(sales_df["month"])
+    cogs_df["month"] = pd.to_datetime(cogs_df["month"])
+    df["month"] = pd.to_datetime(df["month"])
+
 dso_df = dso(df[["month", "ar_balance"]], sales_df)
 dpo_df = dpo(df[["month", "ap_balance"]], cogs_df)
 dio_df = dio(df[["month", "inventory"]], cogs_df)
@@ -179,7 +184,6 @@ st.caption(
 )
 
 # --- Empirical buffers (no solver, for validation & display) ---
-# VaR/CVaR computed on left tail of scenarios (treat scenarios as end balances).
 left_var = empirical_left_var(scenarios, alpha)             # could be negative
 left_cvar = empirical_left_cvar(scenarios, alpha)           # average of worst (1-α) tail
 buffer_empirical_var = max(0.0, -left_var)                  # b s.t. VaR_{α}(s + b) >= 0
@@ -189,7 +193,7 @@ cols = st.columns(2)
 cols[0].metric("Empirical VaR buffer", f"${buffer_empirical_var:,.0f}")
 cols[1].metric("Empirical CVaR buffer", f"${buffer_empirical_cvar:,.0f}")
 
-# --- Optimized buffer (solver-based) ---
+# --- Optimized buffer (solver-based; risk_models uses ε-regularized CVaR) ---
 try:
     buffer_opt, t_opt = cvar_cash_buffer(scenarios, alpha=alpha)
     solver_label = "cvxpy (Clarabel/ECOS/SCS)" if _HAS_CVX else ("SciPy (HiGHS)" if _HAS_SCIPY else "Unknown")
