@@ -13,6 +13,14 @@ except Exception:  # pragma: no cover
     cp = None
     _HAS_CVX = False
 
+# SciPy fallback (for LP solve if cvxpy isn't available)
+try:
+    from scipy.optimize import linprog
+    _HAS_SCIPY = True
+except Exception:  # pragma: no cover
+    linprog = None
+    _HAS_SCIPY = False
+
 
 def quantile_forecast(
     X: pd.DataFrame,
@@ -59,30 +67,47 @@ def cvar_cash_buffer(
     alpha: float = 0.95,
 ) -> tuple[float, float]:
     """
-    Size a cash buffer b using a CVaR-style convex program.
+    Minimum buffer sizing with a CVaR constraint.
 
-    Correct objective (Rockafellar–Uryasev):
-        minimize   b + t + (1/((1-alpha)*N)) * sum_i z_i
-        subject to z_i >= -(s_i + b) - t
-                   z_i >= 0
-                   b >= 0
-    Returns (buffer b, threshold t).
+    Variables
+    ---------
+    b >= 0   (buffer to add)
+    t  free  (VaR-like threshold)
+    z_i >= 0 (hinge auxiliaries)
+
+    Problem
+    -------
+    minimize      b
+    subject to    z_i >= -(s_i + b) - t      for all i
+                  t + (1/((1-alpha)*N)) * sum_i z_i <= 0
+                  b >= 0, z_i >= 0
+
+    Intuition
+    ---------
+    We choose the smallest buffer b such that the CVaR_α of the shortfall
+    loss_i = -(s_i + b) is non-positive. This avoids the b–t cancellation
+    that can produce a zero buffer even under severe downside.
+
+    Returns
+    -------
+    (b_opt, t_opt)
     """
     s = np.asarray(scenarios, dtype=float).ravel()
     n = s.shape[0]
     if n == 0:
         return 0.0, 0.0
 
+    # ---- cvxpy version (preferred) ----
     if _HAS_CVX:
-        b = cp.Variable(nonneg=True)   # buffer
-        t = cp.Variable()              # VaR-like threshold
+        b = cp.Variable(nonneg=True)
+        t = cp.Variable()
         z = cp.Variable(n, nonneg=True)
 
-        constraints = [z >= -(s + b) - t]  # z_i >= -(s_i + b) - t
-
-        # FIX: include + t in the objective
-        objective = cp.Minimize(b + t + (1.0 / ((1.0 - alpha) * n)) * cp.sum(z))
-        prob = cp.Problem(objective, constraints)
+        constraints = [
+            z >= -(s + b) - t,                                      # hinge
+            t + (1.0 / ((1.0 - alpha) * n)) * cp.sum(z) <= 0.0,     # CVaR constraint
+        ]
+        prob = cp.Problem(cp.Minimize(b), constraints)
 
         solved = False
         for solver in ("CLARABEL", "ECOS", "SCS"):
@@ -95,33 +120,40 @@ def cvar_cash_buffer(
                 continue
 
         if not solved or b.value is None or t.value is None:
-            raise RuntimeError(f"CVaR optimization failed with status: {prob.status}")
-
+            raise RuntimeError(f"CVaR optimization failed: {prob.status}")
         return float(b.value), float(t.value)
 
-    # ---- SciPy LP fallback (if cvxpy not available) ----
+    # ---- SciPy LP fallback ----
     if not _HAS_SCIPY:
-        raise ImportError("Neither cvxpy nor SciPy is available to solve CVaR buffer.")
+        raise ImportError("Neither cvxpy nor SciPy is available.")
 
-    # Decision variables x = [b, t, z_1..z_n]
-    # FIX: objective includes + t
+    # Decision vector x = [b, t, z_1..z_n]
+    # Objective: minimize b  -> c = [1, 0, 0..0]
     c = np.zeros(2 + n, dtype=float)
-    c[0] = 1.0  # b
-    c[1] = 1.0  #  t
-    c[2:] = 1.0 / ((1.0 - alpha) * n)  # z_i weights
+    c[0] = 1.0
 
-    # Constraints: z_i >= -(s_i + b) - t  ->  -b - t - z_i <= s_i
-    A_ub = np.zeros((n, 2 + n), dtype=float)
-    b_ub = s.copy()
+    # Constraints:
+    # 1) z_i >= -(s_i + b) - t  ->  -b - t - z_i <= s_i
+    A_ub = np.zeros((n + 1, 2 + n), dtype=float)
+    b_ub = np.zeros(n + 1, dtype=float)
     for i in range(n):
-        A_ub[i, 0] = -1.0  # -b
-        A_ub[i, 1] = -1.0  # -t
+        A_ub[i, 0] = -1.0   # -b
+        A_ub[i, 1] = -1.0   # -t
         A_ub[i, 2 + i] = -1.0  # -z_i
+        b_ub[i] = s[i]
 
-    # Bounds: b >= 0, z_i >= 0, t free
+    # 2) t + (1/((1-alpha)*n)) * sum z_i <= 0
+    A_ub[n, 1] = 1.0
+    A_ub[n, 2:] = 1.0 / ((1.0 - alpha) * n)
+    b_ub[n] = 0.0
+
+    # Bounds: b >= 0, t free, z_i >= 0
     bounds = [(0, None), (-1e12, 1e12)] + [(0, None)] * n
 
-    res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=bounds, method="highs", options={"presolve": True})
+    res = linprog(
+        c, A_ub=A_ub, b_ub=b_ub, bounds=bounds,
+        method="highs", options={"presolve": True}
+    )
     if not res.success:
         raise RuntimeError(f"SciPy LP solver failed: {res.message}")
 
