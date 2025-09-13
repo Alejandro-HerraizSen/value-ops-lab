@@ -1,2 +1,29 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Handle line endings consistently across OS
+* text=auto eol=lf
+
+# Treat Jupyter notebooks as text so GitHub shows proper diffs
+*.ipynb text diff=ipynb
+
+# Mark Python files as text
+*.py text
+
+# Data files
+*.csv text
+*.yaml text
+*.yml text
+
+# Keep images and binaries as-is
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+
+# Ignore generated artifacts
+*.pkl binary
+*.h5 binary
+
+# Documentation
+*.md text
+LICENSE text
+README.md text
