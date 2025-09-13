@@ -29,6 +29,19 @@ from value_ops_lab.ccc import dso, dpo, dio, ccc, cash_unlocked
 from value_ops_lab.diagnostics import waterfall_ccc_impacts
 from value_ops_lab.risk_models import cvar_cash_buffer
 
+# --- Optional solver detection (for display only) ---
+try:
+    import cvxpy as _cp  # noqa: F401
+    _HAS_CVX = True
+except Exception:
+    _HAS_CVX = False
+try:
+    from scipy.optimize import linprog as _lp  # noqa: F401
+    _HAS_SCIPY = True
+except Exception:
+    _HAS_SCIPY = False
+
+
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Value-Ops Lab", layout="wide")
 st.title("📊 Alejandro’s Value-Ops Lab")
@@ -68,15 +81,15 @@ with st.sidebar:
         ),
         index=1,
     )
-    vol = st.slider("Volatility (std dev)", 1000, 30000, 8000, 500)
+    vol = st.slider("Volatility (std dev)", 1_000, 30_000, 8_000, 500)
     if scenario_mode == "Custom":
-        shock = st.slider("Downside shock (avg)", -80000, 20000, -20000, 1000)
+        shock = st.slider("Downside shock (avg)", -80_000, 20_000, -20_000, 1_000)
     else:
         shock_map = {
             "Baseline (no shock)": 0,
-            "Mild downside": -10000,
-            "Moderate downside": -20000,
-            "Severe downside": -40000,
+            "Mild downside": -10_000,
+            "Moderate downside": -20_000,
+            "Severe downside": -40_000,
         }
         shock = shock_map[scenario_mode]
     rng_seed = st.number_input("Random seed", min_value=0, max_value=10_000, value=42, step=1)
@@ -125,16 +138,25 @@ base_cf = (sales_df["sales"].tail(6).to_numpy() - cogs_df["cogs"].tail(6).to_num
 scenarios = base_cf + rng.normal(shock, vol, size=base_cf.shape[0])
 
 # Show scenarios so stakeholders see the stress being applied
-scen_df = pd.DataFrame({"Month": sales_df["month"].tail(6).dt.strftime("%Y-%m"), "Scenario CF": scenarios})
-scen_df_disp = scen_df.copy()
+scen_df = pd.DataFrame(
+    {"Month": sales_df["month"].tail(6).dt.strftime("%Y-%m"), "Scenario CF": scenarios}
+)
 st.caption("Simulated end-of-period cashflow scenarios (last 6 months basis):")
-st.dataframe(scen_df_disp, use_container_width=True)
+st.dataframe(scen_df, use_container_width=True)
 st.bar_chart(scen_df.set_index("Month")["Scenario CF"])
+
+# Quick diagnostic stats (helps validate that downside exists)
+st.caption(
+    f"Scenario stats — min: {scenarios.min():,.0f}, "
+    f"p{int(100*(1-alpha))}: {np.quantile(scenarios, 1-alpha):,.0f}, "
+    f"mean: {scenarios.mean():,.0f}, max: {scenarios.max():,.0f}"
+)
 
 # Solve for buffer
 try:
     buffer, t = cvar_cash_buffer(scenarios, alpha=alpha)
-    st.success(f"Optimal buffer at α={alpha:.2f}: **${buffer:,.0f}**")
+    solver_label = "cvxpy (Clarabel/ECOS/SCS)" if _HAS_CVX else ("SciPy (HiGHS)" if _HAS_SCIPY else "Unknown")
+    st.success(f"Optimal buffer at α={alpha:.2f}: **${buffer:,.0f}**  ·  Solver: {solver_label}")
 except ImportError:
     st.warning("CVaR solver not available. Ensure cvxpy (and clarabel) is installed.")
 except Exception as e:
