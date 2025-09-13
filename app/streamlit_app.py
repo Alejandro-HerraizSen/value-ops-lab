@@ -29,7 +29,7 @@ from value_ops_lab.ccc import dso, dpo, dio, ccc, cash_unlocked
 from value_ops_lab.diagnostics import waterfall_ccc_impacts
 from value_ops_lab.risk_models import cvar_cash_buffer
 
-# --- Optional solver detection (for display only) ---
+# --- Optional solver detection (display only) ---
 try:
     import cvxpy as _cp  # noqa: F401
     _HAS_CVX = True
@@ -40,6 +40,32 @@ try:
     _HAS_SCIPY = True
 except Exception:
     _HAS_SCIPY = False
+
+
+# ---------- Small helpers (empirical VaR / CVaR for sanity checks) ----------
+def empirical_left_var(x: np.ndarray, alpha: float) -> float:
+    """
+    Left-tail VaR on a series x (downside). VaR_{alpha} (left) = quantile at (1 - alpha).
+    """
+    x = np.asarray(x, dtype=float).ravel()
+    q = np.quantile(x, 1.0 - alpha, method="linear")
+    return float(q)
+
+
+def empirical_left_cvar(x: np.ndarray, alpha: float) -> float:
+    """
+    Left-tail CVaR on a series x (empirical average of worst (1-alpha) tail).
+    If the tail set is empty (alpha=1), returns min(x).
+    """
+    x = np.asarray(x, dtype=float).ravel()
+    n = x.size
+    if n == 0:
+        return 0.0
+    q = empirical_left_var(x, alpha)
+    tail = x[x <= q]
+    if tail.size == 0:
+        tail = np.array([x.min()])
+    return float(tail.mean())
 
 
 # --- Streamlit Page Config ---
@@ -152,15 +178,76 @@ st.caption(
     f"mean: {scenarios.mean():,.0f}, max: {scenarios.max():,.0f}"
 )
 
-# Solve for buffer
+# --- Empirical buffers (no solver, for validation & display) ---
+# VaR/CVaR computed on left tail of scenarios (treat scenarios as end balances).
+left_var = empirical_left_var(scenarios, alpha)             # could be negative
+left_cvar = empirical_left_cvar(scenarios, alpha)           # average of worst (1-α) tail
+buffer_empirical_var = max(0.0, -left_var)                  # b s.t. VaR_{α}(s + b) >= 0
+buffer_empirical_cvar = max(0.0, -left_cvar)                # b s.t. CVaR_{α}(s + b) >= 0
+
+cols = st.columns(2)
+cols[0].metric("Empirical VaR buffer", f"${buffer_empirical_var:,.0f}")
+cols[1].metric("Empirical CVaR buffer", f"${buffer_empirical_cvar:,.0f}")
+
+# --- Optimized buffer (solver-based) ---
 try:
-    buffer, t = cvar_cash_buffer(scenarios, alpha=alpha)
+    buffer_opt, t_opt = cvar_cash_buffer(scenarios, alpha=alpha)
     solver_label = "cvxpy (Clarabel/ECOS/SCS)" if _HAS_CVX else ("SciPy (HiGHS)" if _HAS_SCIPY else "Unknown")
-    st.success(f"Optimal buffer at α={alpha:.2f}: **${buffer:,.0f}**  ·  Solver: {solver_label}")
+    st.success(
+        f"Optimized buffer at α={alpha:.2f}: **${buffer_opt:,.0f}** "
+        f"· Solver: {solver_label} · t={t_opt:,.0f}"
+    )
 except ImportError:
     st.warning("CVaR solver not available. Ensure cvxpy (and clarabel) is installed.")
+    buffer_opt = None
 except Exception as e:
     st.error(f"CVaR optimization failed: {e}")
+    buffer_opt = None
+
+# --- Recommendation (choose the safer of empirical vs optimized) ---
+recommended = max(
+    [b for b in [buffer_empirical_cvar, buffer_empirical_var, (buffer_opt or 0.0)]]
+)
+st.markdown(
+    f"**Recommended buffer (conservative):** ${recommended:,.0f} "
+    f"(max of empirical CVaR/VaR and optimized result)"
+)
+
+# --- Sensitivity: Buffer vs α ---
+st.subheader("Sensitivity: Buffer vs α")
+st.caption("How reserve sizing changes as risk tolerance tightens (α → 1).")
+
+alphas = np.linspace(0.80, 0.99, 20)
+buf_var, buf_cvar, buf_opt = [], [], []
+
+for a in alphas:
+    # Empirical
+    ev = empirical_left_var(scenarios, a)
+    ec = empirical_left_cvar(scenarios, a)
+    buf_var.append(max(0.0, -ev))
+    buf_cvar.append(max(0.0, -ec))
+
+    # Optimized (try; fallback to NaN)
+    try:
+        b_opt, _ = cvar_cash_buffer(scenarios, alpha=a)
+        buf_opt.append(max(0.0, float(b_opt)))
+    except Exception:
+        buf_opt.append(np.nan)
+
+sens_df = pd.DataFrame(
+    {
+        "alpha": alphas,
+        "Empirical VaR buffer": buf_var,
+        "Empirical CVaR buffer": buf_cvar,
+        "Optimized buffer": buf_opt,
+    }
+).set_index("alpha")
+
+st.line_chart(sens_df)
+st.caption(
+    "Empirical lines come from sample quantiles/means; the optimized line solves the CVaR program. "
+    "Curves should slope upward as α increases and/or scenarios worsen."
+)
 
 # --- Footer ---
 st.markdown("---")
