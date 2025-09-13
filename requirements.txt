@@ -1,6 +1,12 @@
+-e .
 pandas==2.2.2
 numpy==1.26.4
+scipy==1.14.1
 scikit-learn==1.5.1
 matplotlib==3.8.4
 streamlit==1.38.0
 pytest==8.2.0
+
+# CVaR optimization (cvxpy + Clarabel solver)
+cvxpy==1.5.2
+clarabel==0.7.1

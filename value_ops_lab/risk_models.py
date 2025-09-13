@@ -61,49 +61,41 @@ def cvar_cash_buffer(
     """
     Compute an optimal cash buffer using a CVaR-style convex program.
 
-    This solves a common risk-aware sizing problem: choose buffer 'b'
-    that minimizes a convex surrogate of tail shortfall while keeping
-    the formulation simple for demos.
-
-    Parameters
-    ----------
-    scenarios : np.ndarray
-        Array of simulated end-of-period cash balances without buffer.
-        Negative values represent shortfalls.
-    alpha : float
-        Confidence level for CVaR. Typical values are 0.90 to 0.99.
-
-    Returns
-    -------
-    (buffer, aux_threshold) : tuple of float
-        buffer : optimal nonnegative cash buffer.
-        aux_threshold : auxiliary threshold variable value.
-
-    Notes
-    -----
-    - Requires cvxpy to be installed. If unavailable, raises ImportError.
-    - This is a demonstration model. In production, you may want to add
-      explicit cost of capital, liquidity covenants, and multi-period dynamics.
+    Prefers Clarabel; falls back to ECOS, then SCS if needed.
     """
     if not _HAS_CVX:
         raise ImportError(
             "cvxpy is required for cvar_cash_buffer. "
-            "Install cvxpy or use a fallback optimizer."
+            "Install cvxpy (and clarabel or ecos) to enable this feature."
         )
 
-    scenarios = np.asarray(scenarios, dtype=float).ravel()
-    n = scenarios.shape[0]
+    s = np.asarray(scenarios, dtype=float).ravel()
+    n = s.shape[0]
+    if n == 0:
+        return 0.0, 0.0
 
-    b = cp.Variable(nonneg=True)          # buffer to size
-    t = cp.Variable()                     # threshold (VaR-like)
-    z = cp.Variable(n, nonneg=True)       # auxiliary variables for CVaR hinge
+    b = cp.Variable(nonneg=True)   # buffer
+    t = cp.Variable()              # VaR-like threshold
+    z = cp.Variable(n, nonneg=True)
 
     # z_i >= -(s_i + b) - t
-    constraints = [z >= -(scenarios + b) - t]
+    constraints = [z >= -(s + b) - t]
 
-    # Minimize b + (1/((1 - alpha) * n)) * sum(z)
     objective = cp.Minimize(b + (1.0 / ((1.0 - alpha) * n)) * cp.sum(z))
     prob = cp.Problem(objective, constraints)
-    prob.solve(solver=cp.ECOS, verbose=False)
+
+    # Prefer Clarabel; graceful fallbacks
+    solved = False
+    for solver in ("CLARABEL", "ECOS", "SCS"):
+        try:
+            prob.solve(solver=getattr(cp, solver), verbose=False)
+            if prob.status in ("optimal", "optimal_inaccurate"):
+                solved = True
+                break
+        except Exception:
+            continue
+
+    if not solved or b.value is None or t.value is None:
+        raise RuntimeError(f"CVaR optimization failed with status: {prob.status}")
 
     return float(b.value), float(t.value)

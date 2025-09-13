@@ -19,7 +19,7 @@ Run locally:
 # --- ensure repo root is on sys.path so we can import value_ops_lab ---
 import sys
 from pathlib import Path
-ROOT = Path(__file__).resolve().parents[1]  # /mount/src/value-ops-lab
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 # ----------------------------------------------------------------------
@@ -37,7 +37,7 @@ from value_ops_lab.risk_models import cvar_cash_buffer
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Value-Ops Lab", layout="wide")
-st.title("📊 Value-Ops Lab: Risk-aware FP&A and Working-Capital Optimizer")
+st.title("Alejandro's Value-Ops Lab: Risk-aware FP&A and Working-Capital Optimizer")
 st.markdown(
     """
     This demo illustrates **how consulting analytics can unlock cash** and improve 
