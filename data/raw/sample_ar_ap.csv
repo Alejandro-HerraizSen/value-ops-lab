@@ -1,0 +1,8 @@
+entity_type,entity_id,entity_name,invoice_id,invoice_date,due_date,amount,status
+Customer,101,Acme Corp,INV1001,2025-01-05,2025-02-05,12000,Open
+Customer,102,Beta Inc,INV1002,2025-01-10,2025-02-10,8500,Open
+Vendor,201,Supplier A,VB2001,2025-01-12,2025-01-27,6000,Open
+Vendor,202,Supplier B,VB2002,2025-01-14,2025-02-13,4500,Closed
+Customer,103,Delta LLC,INV1003,2025-01-18,2025-02-18,15000,Open
+Vendor,203,Supplier C,VB2003,2025-01-25,2025-02-24,9000,Open
+Customer,104,Omega SA,INV1004,2025-01-30,2025-02-28,9500,Open

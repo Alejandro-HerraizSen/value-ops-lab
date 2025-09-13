@@ -1,0 +1,23 @@
+seed: 42
+months: 24
+sales:
+  base: 100000
+  noise: 20000
+cogs:
+  ratio: 0.6
+  noise: 5000
+ar:
+  ratio: 0.25
+  noise: 3000
+ap:
+  ratio: 0.15
+  noise: 2000
+inventory:
+  ratio: 0.20
+  noise: 2000
+customers:
+  count: 5
+  avg_invoice: 10000
+vendors:
+  count: 5
+  avg_bill: 7000

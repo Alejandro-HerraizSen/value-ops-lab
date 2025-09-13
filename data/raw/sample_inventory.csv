@@ -1,0 +1,8 @@
+item_id,item_name,category,txn_date,txn_type,quantity,unit_cost,total_cost
+I001,Widget A,Raw Material,2025-01-02,Purchase,500,10,5000
+I002,Widget B,Raw Material,2025-01-06,Purchase,300,15,4500
+I001,Widget A,Raw Material,2025-01-10,Usage,-200,10,-2000
+I003,Widget C,Finished Goods,2025-01-15,Production,100,50,5000
+I002,Widget B,Raw Material,2025-01-20,Usage,-100,15,-1500
+I003,Widget C,Finished Goods,2025-01-22,Sale,-50,80,-4000
+I001,Widget A,Raw Material,2025-01-27,Purchase,400,11,4400
