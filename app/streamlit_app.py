@@ -35,7 +35,7 @@ from value_ops_lab.risk_models import (
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Value-Ops Lab", layout="wide")
-st.title("📊 Alejandro’s Value-Ops Lab")
+st.title(" Alejandro’s Value-Ops Lab")
 st.markdown(
     """
     This demo illustrates **how consulting analytics can unlock cash** and improve 
@@ -46,58 +46,79 @@ st.markdown(
 )
 
 # --- Sidebar Controls ---
+# --- Sidebar Controls (clean, grouped) ---
 with st.sidebar:
-    st.header("Data & What-If Controls")
-    n_months = st.slider("Number of months", 12, 60, 24, 1)
+    st.markdown("### Data")
+    n_months = st.slider("History window (months)", 12, 60, 24, 1, help="How many months of synthetic history to generate.")
 
-    st.divider()
-    st.subheader("Working Capital Targets (days)")
-    dso_shift = st.slider("Target DSO improvement", 0, 30, 5, 1)
-    dio_shift = st.slider("Target DIO improvement", 0, 30, 3, 1)
-    dpo_shift = st.slider("Target DPO extension", 0, 30, 4, 1)
+    st.markdown("---")
+    st.markdown("### Scenario Set")
 
-    st.divider()
-    st.subheader("Risk Settings (CVaR)")
-    alpha = st.slider("CVaR confidence (α)", 0.80, 0.99, 0.95, 0.01)
-
-    st.caption("Scenario generator (cashflow shocks)")
-    scenario_mode = st.radio(
-        "Scenario set",
-        (
-            "Baseline (no shock)",
-            "Mild downside",
-            "Moderate downside",
-            "Severe downside",
-            "Custom",
-        ),
-        index=1,
-    )
-    vol = st.slider("Volatility (std dev)", 1_000, 30_000, 8_000, 500)
-    if scenario_mode == "Custom":
-        shock = st.slider("Downside shock (avg)", -80_000, 20_000, -20_000, 1_000)
-    else:
-        shock_map = {
-            "Baseline (no shock)": 0,
-            "Mild downside": -10_000,
-            "Moderate downside": -20_000,
-            "Severe downside": -40_000,
-        }
-        shock = shock_map[scenario_mode]
-    rng_seed = st.number_input("Random seed", min_value=0, max_value=10_000, value=42, step=1)
-
-    st.divider()
-    st.subheader("Solver")
-    solver_mode = st.selectbox(
-        "CVaR solver",
-        ["Auto (prefer CVXPY, fallback SciPy)", "Force CVXPY", "Force SciPy"],
-        index=0,
-    )
-    prefer_map = {
-        "Auto (prefer CVXPY, fallback SciPy)": "auto",
-        "Force CVXPY": "cvxpy",
-        "Force SciPy": "scipy",
+    # Attractive labels with emojis (more “consulting demo” vibe)
+    scenario_labels = {
+        "Baseline": "Baseline (no shock)",
+        "Mild":     "Mild downside",
+        "Moderate": "Moderate downside",
+        "Severe":   "Severe downside",
+        "Custom":   "Custom",
     }
-    prefer = prefer_map[solver_mode]
+    scenario_keys = list(scenario_labels.keys())
+    scenario_display = [scenario_labels[k] for k in scenario_keys]
+
+    sel = st.radio(
+        "Choose a scenario:",
+        scenario_display,
+        index=1,
+        label_visibility="collapsed",
+        help="Pick a stress profile; then tweak details below.",
+    )
+    # Map back to a key like "Mild", "Severe", etc.
+    scenario_mode = scenario_keys[scenario_display.index(sel)]
+
+    # All tuners beneath the scenario set (cleaner!)
+    with st.expander("Tune scenario parameters", expanded=True):
+        # Risk (alpha) as select slider for cleaner ticks
+        alpha = st.select_slider(
+            "CVaR confidence (α)",
+            options=[0.80, 0.85, 0.90, 0.93, 0.95, 0.97, 0.99],
+            value=0.95,
+            help="Higher α = more conservative buffer (protects deeper tail).",
+        )
+
+        # Volatility slider always visible; shock only if custom
+        vol = st.slider("Volatility σ (std dev of shocks, $)", 1_000, 30_000, 8_000, 500)
+        if scenario_mode == "Custom":
+            shock = st.slider("Average downside shock μ ($)", -80_000, 20_000, -20_000, 1_000)
+        else:
+            shock_map = {
+                "Baseline": 0,
+                "Mild": -10_000,
+                "Moderate": -20_000,
+                "Severe": -40_000,
+            }
+            shock = shock_map[scenario_mode]
+
+        rng_seed = st.number_input("Random seed", min_value=0, max_value=10_000, value=42, step=1)
+
+    st.markdown("---")
+    with st.expander("Operational levers (days)", expanded=False):
+        dso_shift = st.slider("↓ DSO improvement", 0, 30, 5, 1)
+        dio_shift = st.slider("↓ DIO improvement", 0, 30, 3, 1)
+        dpo_shift = st.slider("↑ DPO extension", 0, 30, 4, 1)
+
+    st.markdown("---")
+    with st.expander("Solver & runtime", expanded=False):
+        solver_mode = st.selectbox(
+            "CVaR solver",
+            ["Auto (prefer CVXPY, fallback SciPy)", "Force CVXPY", "Force SciPy"],
+            index=0,
+        )
+        prefer_map = {
+            "Auto (prefer CVXPY, fallback SciPy)": "auto",
+            "Force CVXPY": "cvxpy",
+            "Force SciPy": "scipy",
+        }
+        prefer = prefer_map[solver_mode]
 
 # --- Generate Synthetic Data ---
 df = make_synthetic(n_months)
