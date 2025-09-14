@@ -6,7 +6,7 @@ from typing import Iterable, Dict, Tuple
 
 from sklearn.ensemble import GradientBoostingRegressor
 
-# --- Optional deps (kept optional so the package imports cleanly) ---
+
 try:
     import cvxpy as cp
     _HAS_CVX = True
