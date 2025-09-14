@@ -41,7 +41,7 @@ st.markdown(
     This demo illustrates **how consulting analytics can unlock cash** and improve 
     decision-making under uncertainty.
 
-    👉 Metrics shown here are *synthetic* data, but the methods are client-ready.
+     Metrics shown here are *synthetic* data, but the methods are client-ready.
     """
 )
 
@@ -137,13 +137,13 @@ dio_df = dio(df[["month", "inventory"]], cogs_df)
 ccc_df = ccc(dso_df, dpo_df, dio_df)
 
 # --- Section 1: CCC Metrics ---
-st.subheader("📌 Cash Conversion Cycle (CCC) Metrics")
+st.subheader(" Cash Conversion Cycle (CCC) Metrics")
 st.markdown("CCC combines **DSO, DIO, DPO** to measure liquidity efficiency.")
 st.dataframe(ccc_df.tail(6), use_container_width=True)
 st.line_chart(ccc_df.set_index("month")[["DSO", "DPO", "DIO", "CCC"]])
 
 # --- Section 2: Cash-Unlock Waterfall ---
-st.subheader("💡 What-if Analysis: Cash Unlock")
+st.subheader(" What-if Analysis: Cash Unlock")
 baseline = ccc_df.iloc[-1]
 steps = waterfall_ccc_impacts(
     baseline_row=baseline,
@@ -181,7 +181,7 @@ st.pyplot(plt.gcf())
 plt.close()
 
 # --- Section 3: Risk-Aware Buffer (CVaR) ---
-st.subheader("⚖️ Risk-aware Cash Buffer (CVaR)")
+st.subheader(" Risk-aware Cash Buffer (CVaR)")
 st.markdown(
     "Using a **Conditional Value-at-Risk (CVaR)** approach, we estimate the "
     "buffer needed to protect against downside scenarios."
