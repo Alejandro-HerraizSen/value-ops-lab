@@ -7,7 +7,7 @@ Interactive demo for risk-aware FP&A and working-capital optimization.
 Key modules shown:
 - CCC diagnostics (DSO, DPO, DIO, CCC)
 - Cash-unlock waterfall analysis
-- CVaR-based buffer sizing under uncertainty (Clarabel preferred)
+- CVaR-based buffer sizing under uncertainty (Clarabel preferred; LP fallback)
 
 Run locally:
     streamlit run app/streamlit_app.py
@@ -27,45 +27,11 @@ import numpy as np
 from value_ops_lab.synth import make_synthetic
 from value_ops_lab.ccc import dso, dpo, dio, ccc, cash_unlocked
 from value_ops_lab.diagnostics import waterfall_ccc_impacts
-from value_ops_lab.risk_models import cvar_cash_buffer
-
-# --- Optional solver detection (display only) ---
-try:
-    import cvxpy as _cp  # noqa: F401
-    _HAS_CVX = True
-except Exception:
-    _HAS_CVX = False
-try:
-    from scipy.optimize import linprog as _lp  # noqa: F401
-    _HAS_SCIPY = True
-except Exception:
-    _HAS_SCIPY = False
-
-
-# ---------- Small helpers (empirical VaR / CVaR for sanity checks) ----------
-def empirical_left_var(x: np.ndarray, alpha: float) -> float:
-    """
-    Left-tail VaR on a series x (downside). VaR_{alpha} (left) = quantile at (1 - alpha).
-    """
-    x = np.asarray(x, dtype=float).ravel()
-    q = np.quantile(x, 1.0 - alpha, method="linear")
-    return float(q)
-
-
-def empirical_left_cvar(x: np.ndarray, alpha: float) -> float:
-    """
-    Left-tail CVaR on a series x (empirical average of worst (1-alpha) tail).
-    If the tail set is empty (alpha=1), returns min(x).
-    """
-    x = np.asarray(x, dtype=float).ravel()
-    if x.size == 0:
-        return 0.0
-    q = empirical_left_var(x, alpha)
-    tail = x[x <= q]
-    if tail.size == 0:
-        tail = np.array([x.min()])
-    return float(tail.mean())
-
+from value_ops_lab.risk_models import (
+    cvar_cash_buffer,
+    empirical_left_var,
+    empirical_left_cvar,
+)
 
 # --- Streamlit Page Config ---
 st.set_page_config(page_title="Value-Ops Lab", layout="wide")
@@ -119,17 +85,31 @@ with st.sidebar:
         shock = shock_map[scenario_mode]
     rng_seed = st.number_input("Random seed", min_value=0, max_value=10_000, value=42, step=1)
 
+    st.divider()
+    st.subheader("Solver")
+    solver_mode = st.selectbox(
+        "CVaR solver",
+        ["Auto (prefer CVXPY, fallback SciPy)", "Force CVXPY", "Force SciPy"],
+        index=0,
+    )
+    prefer_map = {
+        "Auto (prefer CVXPY, fallback SciPy)": "auto",
+        "Force CVXPY": "cvxpy",
+        "Force SciPy": "scipy",
+    }
+    prefer = prefer_map[solver_mode]
+
 # --- Generate Synthetic Data ---
 df = make_synthetic(n_months)
-sales_df = df[["month", "sales"]]
-cogs_df = df[["month", "cogs"]]
+sales_df = df[["month", "sales"]].copy()
+cogs_df = df[["month", "cogs"]].copy()
 
-# Ensure 'month' is datetime for plotting/formatting
-if not np.issubdtype(sales_df["month"].dtype, np.datetime64):
-    sales_df["month"] = pd.to_datetime(sales_df["month"])
-    cogs_df["month"] = pd.to_datetime(cogs_df["month"])
-    df["month"] = pd.to_datetime(df["month"])
+# Ensure datetime
+for _df in (df, sales_df, cogs_df):
+    if not np.issubdtype(_df["month"].dtype, np.datetime64):
+        _df["month"] = pd.to_datetime(_df["month"])
 
+# Compute CCC parts
 dso_df = dso(df[["month", "ar_balance"]], sales_df)
 dpo_df = dpo(df[["month", "ap_balance"]], cogs_df)
 dio_df = dio(df[["month", "inventory"]], cogs_df)
@@ -156,6 +136,29 @@ target_ccc = float(steps["new_CCC"].iloc[-1])
 unlocked = cash_unlocked(current_ccc, target_ccc, daily_sales)
 st.metric("Estimated cash unlocked", f"${unlocked:,.0f}")
 
+# Waterfall bar (ΔCCC → cash)
+labels = steps["lever"].tolist()
+ccc_baseline = float(ccc_df.iloc[-1]["CCC"])
+ccc_path = np.r_[ccc_baseline, steps["new_CCC"].to_numpy()]
+delta_ccc_per_step = np.diff(ccc_path)           # signed
+cash_impacts = -delta_ccc_per_step * daily_sales # negative ΔCCC => positive cash
+
+running = np.cumsum(cash_impacts)
+base = np.r_[0, running[:-1]]
+
+import matplotlib.pyplot as plt
+plt.figure(figsize=(9, 4))
+for i, (b, h) in enumerate(zip(base, cash_impacts)):
+    color = "#2ca02c" if h >= 0 else "#d62728"
+    plt.bar(i, h, bottom=b, width=0.6, color=color)
+plt.xticks(range(len(labels)), labels, rotation=0)
+plt.title("Cash Unlock Waterfall (ΔCCC × Daily Sales)")
+plt.ylabel("Cash Impact ($)")
+plt.axhline(0, color="black", linewidth=0.8)
+plt.tight_layout()
+st.pyplot(plt.gcf())
+plt.close()
+
 # --- Section 3: Risk-Aware Buffer (CVaR) ---
 st.subheader("⚖️ Risk-aware Cash Buffer (CVaR)")
 st.markdown(
@@ -174,12 +177,15 @@ scen_df = pd.DataFrame(
 )
 st.caption("Simulated end-of-period cashflow scenarios (last 6 months basis):")
 st.dataframe(scen_df, use_container_width=True)
+
+# Bar chart
 st.bar_chart(scen_df.set_index("Month")["Scenario CF"])
 
 # Quick diagnostic stats (helps validate that downside exists)
+p_left = np.quantile(scenarios, 1 - alpha)
 st.caption(
     f"Scenario stats — min: {scenarios.min():,.0f}, "
-    f"p{int(100*(1-alpha))}: {np.quantile(scenarios, 1-alpha):,.0f}, "
+    f"p{int(100*(1-alpha))}: {p_left:,.0f}, "
     f"mean: {scenarios.mean():,.0f}, max: {scenarios.max():,.0f}"
 )
 
@@ -193,16 +199,17 @@ cols = st.columns(2)
 cols[0].metric("Empirical VaR buffer", f"${buffer_empirical_var:,.0f}")
 cols[1].metric("Empirical CVaR buffer", f"${buffer_empirical_cvar:,.0f}")
 
-# --- Optimized buffer (solver-based; risk_models uses ε-regularized CVaR) ---
+# --- Optimized buffer (robust solver with degeneracy guard) ---
 try:
-    buffer_opt, t_opt = cvar_cash_buffer(scenarios, alpha=alpha)
-    solver_label = "cvxpy (Clarabel/ECOS/SCS)" if _HAS_CVX else ("SciPy (HiGHS)" if _HAS_SCIPY else "Unknown")
+    buffer_opt, t_opt, solver_used = cvar_cash_buffer(
+        scenarios, alpha=alpha, prefer=prefer, return_solver=True
+    )
     st.success(
-        f"Optimized buffer at α={alpha:.2f}: **${buffer_opt:,.0f}** "
-        f"· Solver: {solver_label} · t={t_opt:,.0f}"
+        f"Optimized buffer at α={alpha:.2f}: **${buffer_opt:,.0f}** · "
+        f"Solver: {solver_used} · t={t_opt:,.0f}"
     )
 except ImportError:
-    st.warning("CVaR solver not available. Ensure cvxpy (and clarabel) is installed.")
+    st.warning("Solver not available. Ensure either cvxpy (with clarabel) or scipy is installed.")
     buffer_opt = None
 except Exception as e:
     st.error(f"CVaR optimization failed: {e}")
@@ -225,15 +232,12 @@ alphas = np.linspace(0.80, 0.99, 20)
 buf_var, buf_cvar, buf_opt = [], [], []
 
 for a in alphas:
-    # Empirical
     ev = empirical_left_var(scenarios, a)
     ec = empirical_left_cvar(scenarios, a)
     buf_var.append(max(0.0, -ev))
     buf_cvar.append(max(0.0, -ec))
-
-    # Optimized (try; fallback to NaN)
     try:
-        b_opt, _ = cvar_cash_buffer(scenarios, alpha=a)
+        b_opt, _t, _solver = cvar_cash_buffer(scenarios, alpha=a, prefer=prefer, return_solver=True)
         buf_opt.append(max(0.0, float(b_opt)))
     except Exception:
         buf_opt.append(np.nan)
@@ -242,15 +246,17 @@ sens_df = pd.DataFrame(
     {
         "alpha": alphas,
         "Empirical VaR buffer": buf_var,
-        "Empirical CVaR buffer": buf_cvar,
+        "Empirical CVAР buffer": buf_cvar,
         "Optimized buffer": buf_opt,
     }
 ).set_index("alpha")
 
 st.line_chart(sens_df)
+
 st.caption(
-    "Empirical lines come from sample quantiles/means; the optimized line solves the CVaR program. "
-    "Curves should slope upward as α increases and/or scenarios worsen."
+    "Empirical lines come from sample quantiles/means; the optimized line solves the CVaR program "
+    "with degeneracy guard (Auto = CVXPY→SciPy fallback). Curves should slope upward as α increases "
+    "and/or scenarios worsen."
 )
 
 # --- Footer ---
