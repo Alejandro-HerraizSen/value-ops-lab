@@ -343,22 +343,31 @@ We stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**
     ).set_index("alpha")
     st.line_chart(sens_df)
 
-    with st.expander("How it’s computed (math sketch)"):
-        st.markdown(
-            r"""
-**Program (Rockafellar–Uryasev, left tail)**
+with st.expander("How it’s computed (math sketch)"):
+    st.markdown("**Program (Rockafellar–Uryasev, left tail)**")
 
-Minimize \( b + \varepsilon\big(t + \frac{1}{N}\sum z_i\big) \)  
-subject to \( z_i \ge -(s_i + b) - t \), \( z_i \ge 0 \), \( b \ge 0 \),  
-and \( t + \frac{1}{(1-\alpha)N}\sum z_i \le 0 \).
+    st.latex(r"""
+    \min_{b, t, z} \quad b + \varepsilon\left(t + \frac{1}{N}\sum_i z_i\right)
+    """)
 
+    st.latex(r"""
+    \text{s.t. } \quad 
+    z_i \ge -(s_i + b) - t, \; z_i \ge 0, \; b \ge 0
+    """)
+
+    st.latex(r"""
+    t + \frac{1}{(1-\alpha)N}\sum_i z_i \le 0
+    """)
+
+    st.markdown(
+        r"""
 - \(s_i\): scenario cashflow (negative = shortfall)  
 - \(b\): buffer to add  
 - \(t\): VaR-like threshold  
 - \(z_i\): hinge variables for the tail loss  
-- \(\varepsilon\): tiny regularizer (avoid b–t degeneracy)
-"""
-        )
+- \(\varepsilon\): tiny regularizer (avoids \(b{-}t\) degeneracy)  
+        """
+    )
 
     with st.expander("How to interpret CVaR buffer results"):
         st.markdown(
