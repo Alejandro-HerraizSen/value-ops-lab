@@ -18,7 +18,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Add root to path for local imports (if running from app/)
+# If you didn't package with -e . and pyproject.toml, uncomment the shim:
 # import sys
 # from pathlib import Path
 # ROOT = Path(__file__).resolve().parents[1]
@@ -54,8 +54,10 @@ _All data are synthetic; the methodology is client-ready and maps cleanly to rea
 
 with st.sidebar:
     st.markdown("### Data window")
-    n_months = st.slider("History (months)", 12, 60, 24, 1,
-                         help="Number of synthetic months to generate.")
+    n_months = st.slider(
+        "History (months)", 12, 60, 24, 1,
+        help="Number of synthetic months to generate."
+    )
 
     st.markdown("---")
     st.markdown("### Scenario set")
@@ -168,7 +170,7 @@ This prioritizes initiatives across collections, inventory planning, and supplie
     with st.expander("How these metrics are computed and interpreted"):
         st.markdown(
             """
-**Formulas**
+**Formulas**  
 - **DSO (Days Sales Outstanding)** = (Accounts Receivable ÷ Sales) × 30  
 - **DIO (Days Inventory Outstanding)** = (Inventory ÷ COGS) × 30  
 - **DPO (Days Payables Outstanding)** = (Accounts Payable ÷ COGS) × 30  
@@ -212,7 +214,7 @@ We apply target shifts in **DSO/DIO/DPO** and translate the improvement in **CCC
 
     st.metric("Estimated cash unlocked", f"${unlocked:,.0f}")
 
-    # Waterfall
+    # Waterfall: ΔCCC to cash
     labels = steps["lever"].tolist()
     ccc_baseline = float(ccc_df.iloc[-1]["CCC"])
     ccc_path = np.r_[ccc_baseline, steps["new_CCC"].to_numpy()]
@@ -343,52 +345,48 @@ We stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**
     ).set_index("alpha")
     st.line_chart(sens_df)
 
-with st.expander("How it’s computed (math sketch)"):
-    st.markdown("**Program (Rockafellar–Uryasev, left tail)**")
+    # Single expander to avoid nested-block errors: math + interpretation together
+    with st.expander("Details — math formulation & interpretation"):
+        st.markdown("#### Math formulation (Rockafellar–Uryasev, left tail)")
 
-    st.latex(r"""
-    \min_{b, t, z} \quad b + \varepsilon\left(t + \frac{1}{N}\sum_i z_i\right)
-    """)
+        st.latex(r"""
+        \min_{b, t, z} \quad b + \varepsilon\left(t + \frac{1}{N}\sum_{i=1}^N z_i\right)
+        """)
 
-    st.latex(r"""
-    \text{s.t. } \quad 
-    z_i \ge -(s_i + b) - t, \; z_i \ge 0, \; b \ge 0
-    """)
+        st.latex(r"""
+        \text{s.t.}\quad 
+        z_i \ge -(s_i + b) - t,\;\; z_i \ge 0,\;\; b \ge 0
+        """)
 
-    st.latex(r"""
-    t + \frac{1}{(1-\alpha)N}\sum_i z_i \le 0
-    """)
+        st.latex(r"""
+        t + \frac{1}{(1-\alpha)N}\sum_{i=1}^N z_i \le 0
+        """)
 
-    st.markdown(
-        r"""
+        st.markdown(
+            r"""
 - \(s_i\): scenario cashflow (negative = shortfall)  
 - \(b\): buffer to add  
 - \(t\): VaR-like threshold  
 - \(z_i\): hinge variables for the tail loss  
-- \(\varepsilon\): tiny regularizer (avoids \(b{-}t\) degeneracy)  
-        """
-    )
-
-    with st.expander("How to interpret CVaR buffer results"):
-        st.markdown(
+- \(\varepsilon\): tiny regularizer (avoids \(b{-}t\) degeneracy)
             """
-**Concept**  
-- **VaR**: the cutoff of losses at a chosen confidence α.  
-- **CVaR**: the **average loss** in the worst (1−α)% of scenarios.  
-- **Buffer**: the minimum cash reserve required so that these losses do not push liquidity negative.  
-
-**Interpretation**  
-- **Positive buffer** = additional liquidity required to protect against tail risk.  
-- **Zero buffer** = existing cash generation covers even stressed scenarios.  
-- **Negative values** (rare, only if scenarios are strongly positive) → no buffer needed.  
-
-**Why it matters**  
-- Risk-aware sizing, more conservative than plain stress tests.  
-- Higher α → deeper tail protection → larger buffer.  
-- Useful for CFOs/Treasury for minimum liquidity policies.  
-"""
         )
 
+        st.markdown("#### How to interpret results")
+        st.markdown(
+            """
+- **VaR** is the cutoff loss at confidence **α**; **CVaR** is the **average loss** beyond that cutoff.  
+- The **buffer** is the minimum cash reserve so those tail losses don’t push liquidity negative.  
+- **Positive buffer** ⇒ additional liquidity required to protect tail risk.  
+- **Zero buffer** ⇒ stressed scenarios are covered by existing cash generation.  
+- **Negative values** (rare; only with very positive scenarios) ⇒ no buffer needed.  
+- As **α increases**, protection goes deeper into the tail ⇒ **buffer should increase**.  
+            """
+        )
+
+# --- Footer ---
+st.markdown("---")
+st.caption("This demo is based on synthetic ledgers; methods are production-ready for real data.")
 # --- Footer ---
 st.markdown("---")
 st.caption("This demo is based on synthetic ledgers; methods are production-ready for real data.")
