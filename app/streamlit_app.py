@@ -18,7 +18,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# If you didn't package with -e . and pyproject.toml, uncomment the shim:
+# Add root to path for local imports (if running from app/)
 # import sys
 # from pathlib import Path
 # ROOT = Path(__file__).resolve().parents[1]
@@ -41,10 +41,10 @@ st.caption("Penn State (Math & Data Science) • CFA L1 Candidate 2026")
 
 st.markdown(
     """
-**What this app demonstrates :**
+**What this app demonstrates (consulting workflow):**
 1) Diagnose **working capital** efficiency with CCC (DSO, DIO, DPO).  
-2) Quantify **cash unlocked** from realistic operational levers.  
-3) Size a **risk-aware liquidity buffer** using **CVaR** under stressed scenarios.  
+2) Quantify **cash unlocked** from operational levers.  
+3) Size a **risk-aware liquidity buffer** with **CVaR** under stressed scenarios.  
 
 _All data are synthetic; the methodology is client-ready and maps cleanly to real ledgers._
 """
@@ -53,12 +53,12 @@ _All data are synthetic; the methodology is client-ready and maps cleanly to rea
 # ============================= Sidebar (clean & grouped) =============================
 
 with st.sidebar:
-    st.markdown("### 📅 Data window")
+    st.markdown("### Data window")
     n_months = st.slider("History (months)", 12, 60, 24, 1,
                          help="Number of synthetic months to generate.")
 
     st.markdown("---")
-    st.markdown("### 🎯 Scenario set")
+    st.markdown("### Scenario set")
 
     scenario_labels = {
         "Baseline": "Baseline (no shock)",
@@ -139,6 +139,12 @@ kpi3.metric("DPO (days)", f"{latest['DPO']:.1f}")
 
 st.markdown("---")
 
+# ============================= Tabs intro prompt =============================
+st.info(
+    "Use the tabs below to navigate the analysis: **CCC Diagnostics**, **Cash Unlock (What-If)**, "
+    "and **Risk-Aware Buffer (CVaR)**. Each tab includes a short explanation, formulas, and how to interpret results."
+)
+
 # ============================= Main content tabs =============================
 
 tab_ccc, tab_unlock, tab_cvar = st.tabs(
@@ -151,21 +157,34 @@ with tab_ccc:
     st.subheader("How I diagnose working capital")
     st.markdown(
         """
-**Consulting lens:** I start by decomposing CCC into **DSO (AR)**, **DIO (Inventory)** y **DPO (AP)**.  
-Esto permite priorizar iniciativas: facturación/cobro, planificación de inventario y negociación con proveedores.
+I decompose the Cash Conversion Cycle into **DSO (AR)**, **DIO (Inventory)**, and **DPO (AP)**.
+This prioritizes initiatives across collections, inventory planning, and supplier terms.
 """
     )
 
     st.dataframe(ccc_df.tail(6), use_container_width=True)
     st.line_chart(ccc_df.set_index("month")[["DSO", "DPO", "DIO", "CCC"]])
 
-    with st.expander("How these metrics are computed"):
+    with st.expander("How these metrics are computed and interpreted"):
         st.markdown(
             """
-- **DSO** ≈ (Cuentas por cobrar / Ventas) × 30  
-- **DIO** ≈ (Inventario / COGS) × 30  
-- **DPO** ≈ (Cuentas por pagar / COGS) × 30  
-- **CCC** = DSO + DIO − DPO  
+**Formulas**
+- **DSO (Days Sales Outstanding)** = (Accounts Receivable ÷ Sales) × 30  
+- **DIO (Days Inventory Outstanding)** = (Inventory ÷ COGS) × 30  
+- **DPO (Days Payables Outstanding)** = (Accounts Payable ÷ COGS) × 30  
+- **CCC (Cash Conversion Cycle)** = DSO + DIO − DPO  
+
+**Why it matters**  
+The CCC measures how many days of cash are tied up in operations.  
+- A **shorter CCC** means faster cash conversion, freeing liquidity.  
+- A **longer CCC** indicates slower working capital turnover, increasing financing needs.  
+
+**Interpretation of results**  
+- **Higher DSO** = slower collections from customers → liquidity strain.  
+- **Higher DIO** = more capital locked in inventory.  
+- **Higher DPO** = more supplier credit → improves liquidity.  
+- **Positive CCC** = cash is tied up for that many days before recovery.  
+- **Negative CCC** = suppliers are effectively financing operations (common in retail).  
             """
         )
 
@@ -175,7 +194,7 @@ with tab_unlock:
     st.subheader("What-if levers and cash unlock")
     st.markdown(
         """
-I model **target shifts** in days (DSO, DIO, DPO) and translate the delta in CCC into **cash released** using current daily sales.
+We apply target shifts in **DSO/DIO/DPO** and translate the improvement in **CCC** into **cash released** using current daily sales.
 """
     )
 
@@ -197,8 +216,8 @@ I model **target shifts** in days (DSO, DIO, DPO) and translate the delta in CCC
     labels = steps["lever"].tolist()
     ccc_baseline = float(ccc_df.iloc[-1]["CCC"])
     ccc_path = np.r_[ccc_baseline, steps["new_CCC"].to_numpy()]
-    delta_ccc_per_step = np.diff(ccc_path)
-    cash_impacts = -delta_ccc_per_step * daily_sales
+    delta_ccc_per_step = np.diff(ccc_path)           # signed
+    cash_impacts = -delta_ccc_per_step * daily_sales # negative ΔCCC => positive cash
     running = np.cumsum(cash_impacts)
     base = np.r_[0, running[:-1]]
 
@@ -214,11 +233,23 @@ I model **target shifts** in days (DSO, DIO, DPO) and translate the delta in CCC
     st.pyplot(plt.gcf())
     plt.close()
 
-    with st.expander("Why this matters / What I’d do next"):
+    with st.expander("How to interpret the cash unlock results"):
         st.markdown(
             """
-- **Why:** Cash released reduces reliance on short-term credit and creates room for growth/investment.  
-- **Next:** Segment customers para **políticas de cobro** específicas, **SKU-level inventory** y **terms benchmarking** por proveedor.
+**Logic**  
+We apply the target shifts in DSO, DIO, and DPO (from the sliders) and convert the change in CCC into **cash released**.
+
+**Interpretation**  
+- **Positive bar** = cash unlocked (liquidity gained).  
+- **Negative bar** = cash absorbed (liquidity lost).  
+
+**Why it matters**  
+This quantifies the tangible benefit of operational improvements:  
+- Shorter **DSO** → faster collections.  
+- Shorter **DIO** → leaner inventory.  
+- Longer **DPO** → extended supplier credit.  
+
+You can benchmark unlocked cash vs. financing costs or redeploy it into growth.  
 """
         )
 
@@ -228,7 +259,7 @@ with tab_cvar:
     st.subheader("Reserve sizing under uncertainty (CVaR)")
     st.markdown(
         """
-I stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**, then size a **buffer** such that the
+We stress recent net cash flows with **mean shock (μ)** and **volatility (σ)** and compute a **buffer** such that the
 **left-tail expected shortfall (CVaR)** is ≥ 0 at confidence **α**.
 """
     )
@@ -238,8 +269,11 @@ I stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**,
     base_cf = (sales_df["sales"].tail(6).to_numpy() - cogs_df["cogs"].tail(6).to_numpy())
     scenarios = base_cf + rng.normal(shock, vol, size=base_cf.shape[0])
 
-    scen_df = pd.DataFrame({"Month": sales_df["month"].tail(6).dt.strftime("%Y-%m"),
-                            "Scenario CF": scenarios})
+    scen_df = pd.DataFrame({
+        "Month": sales_df["month"].tail(6).dt.strftime("%Y-%m"),
+        "Scenario CF": scenarios
+    })
+    st.caption("Simulated end-of-period cashflow scenarios (last 6 months basis):")
     st.dataframe(scen_df, use_container_width=True)
     st.bar_chart(scen_df.set_index("Month")["Scenario CF"])
 
@@ -253,8 +287,8 @@ I stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**,
 
     left_var  = empirical_left_var(scenarios, alpha)
     left_cvar = empirical_left_cvar(scenarios, alpha)
-    buffer_empirical_var  = max(0.0, -left_var)
-    buffer_empirical_cvar = max(0.0, -left_cvar)
+    buffer_empirical_var  = max(0.0, -left_var)   # VaR buffer
+    buffer_empirical_cvar = max(0.0, -left_cvar)  # CVaR buffer
 
     m1, m2 = st.columns(2)
     m1.metric("Empirical VaR buffer",  f"${buffer_empirical_var:,.0f}")
@@ -300,17 +334,19 @@ I stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**,
             buf_opt.append(np.nan)
 
     sens_df = pd.DataFrame(
-        {"alpha": alphas,
-         "Empirical VaR buffer": buf_var,
-         "Empirical CVAР buffer": buf_cvar,
-         "Optimized buffer": buf_opt}
+        {
+            "alpha": alphas,
+            "Empirical VaR buffer": buf_var,
+            "Empirical CVAР buffer": buf_cvar,
+            "Optimized buffer": buf_opt,
+        }
     ).set_index("alpha")
     st.line_chart(sens_df)
 
     with st.expander("How it’s computed (math sketch)"):
         st.markdown(
             r"""
-**Program (Rockafellar–Uryasev, left tail):**
+**Program (Rockafellar–Uryasev, left tail)**
 
 Minimize \( b + \varepsilon\big(t + \frac{1}{N}\sum z_i\big) \)  
 subject to \( z_i \ge -(s_i + b) - t \), \( z_i \ge 0 \), \( b \ge 0 \),  
@@ -321,6 +357,26 @@ and \( t + \frac{1}{(1-\alpha)N}\sum z_i \le 0 \).
 - \(t\): VaR-like threshold  
 - \(z_i\): hinge variables for the tail loss  
 - \(\varepsilon\): tiny regularizer (avoid b–t degeneracy)
+"""
+        )
+
+    with st.expander("How to interpret CVaR buffer results"):
+        st.markdown(
+            """
+**Concept**  
+- **VaR**: the cutoff of losses at a chosen confidence α.  
+- **CVaR**: the **average loss** in the worst (1−α)% of scenarios.  
+- **Buffer**: the minimum cash reserve required so that these losses do not push liquidity negative.  
+
+**Interpretation**  
+- **Positive buffer** = additional liquidity required to protect against tail risk.  
+- **Zero buffer** = existing cash generation covers even stressed scenarios.  
+- **Negative values** (rare, only if scenarios are strongly positive) → no buffer needed.  
+
+**Why it matters**  
+- Risk-aware sizing, more conservative than plain stress tests.  
+- Higher α → deeper tail protection → larger buffer.  
+- Useful for CFOs/Treasury for minimum liquidity policies.  
 """
         )
 
