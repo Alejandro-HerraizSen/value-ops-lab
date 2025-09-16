@@ -387,7 +387,4 @@ We stress recent net cash flows with **mean shock (μ)** and **volatility (σ)**
 # --- Footer ---
 st.markdown("---")
 st.caption("This demo is based on synthetic ledgers; methods are production-ready for real data.")
-# --- Footer ---
-st.markdown("---")
-st.caption("This demo is based on synthetic ledgers; methods are production-ready for real data.")
 st.caption("Developed by Alejandro Herraiz Sen — Penn State (Math & Data Science), CFA L1 Candidate 2026")
